@@ -18,7 +18,7 @@ void check_arguments(int argc, char* argv[]) {
   usage_instructions += argv[0];
   usage_instructions += " path/to/input.txt output.txt";
 
-  bool has_valid_args = false;
+  auto has_valid_args = false;
 
   // make sure the user has provided input and output files
   if (argc == 1) {
@@ -36,33 +36,16 @@ void check_arguments(int argc, char* argv[]) {
   }
 }
 
-void check_files(ifstream& in_file, string& in_name,
-                 ofstream& out_file, string& out_name) {
-  if (!in_file.is_open()) {
-    cerr << "Cannot open input file: " << in_name << endl;
+void LoadData(vector<MeasurementPackage>& measurement_pack_list,
+              vector<GroundTruthPackage>& gt_pack_list,
+              const string in_file_name) {
+
+  ifstream in_file_(in_file_name.c_str(), ifstream::in);
+
+  if (!in_file_.is_open()) {
+    cerr << "Cannot open input file: " << in_file_name << endl;
     exit(EXIT_FAILURE);
   }
-
-  if (!out_file.is_open()) {
-    cerr << "Cannot open output file: " << out_name << endl;
-    exit(EXIT_FAILURE);
-  }
-}
-
-int main(int argc, char* argv[]) {
-
-  check_arguments(argc, argv);
-
-  string in_file_name_ = argv[1];
-  ifstream in_file_(in_file_name_.c_str(), ifstream::in);
-
-  string out_file_name_ = argv[2];
-  ofstream out_file_(out_file_name_.c_str(), ofstream::out);
-
-  check_files(in_file_, in_file_name_, out_file_, out_file_name_);
-
-  vector<MeasurementPackage> measurement_pack_list;
-  vector<GroundTruthPackage> gt_pack_list;
 
   string line;
 
@@ -78,71 +61,72 @@ int main(int argc, char* argv[]) {
 
     // reads first element from the current line
     iss >> sensor_type;
-    if (sensor_type.compare("L") == 0) {
-      // LASER MEASUREMENT
-
+    if (sensor_type == "L") { // LASER MEASUREMENT
       // read measurements at this timestamp
       meas_package.sensor_type_ = MeasurementPackage::LASER;
       meas_package.raw_measurements_ = VectorXd(2);
-      float x;
-      float y;
-      iss >> x;
-      iss >> y;
+      float x, y;
+      iss >> x >> y >> timestamp;
       meas_package.raw_measurements_ << x, y;
-      iss >> timestamp;
       meas_package.timestamp_ = timestamp;
       measurement_pack_list.push_back(meas_package);
-    } else if (sensor_type.compare("R") == 0) {
-      // RADAR MEASUREMENT
-
+    } else if (sensor_type == "R") { // RADAR MEASUREMENT
       // read measurements at this timestamp
       meas_package.sensor_type_ = MeasurementPackage::RADAR;
       meas_package.raw_measurements_ = VectorXd(3);
-      float ro;
-      float phi;
-      float ro_dot;
-      iss >> ro;
-      iss >> phi;
-      iss >> ro_dot;
+      float ro, phi, ro_dot;
+      iss >> ro >> phi >> ro_dot >> timestamp;
       meas_package.raw_measurements_ << ro, phi, ro_dot;
-      iss >> timestamp;
       meas_package.timestamp_ = timestamp;
       measurement_pack_list.push_back(meas_package);
     }
 
     // read ground truth data to compare later
-    float x_gt;
-    float y_gt;
-    float vx_gt;
-    float vy_gt;
-    iss >> x_gt;
-    iss >> y_gt;
-    iss >> vx_gt;
-    iss >> vy_gt;
+    float x_gt, y_gt, vx_gt, vy_gt;
+    iss >> x_gt >> y_gt >> vx_gt >> vy_gt;
     gt_package.gt_values_ = VectorXd(4);
     gt_package.gt_values_ << x_gt, y_gt, vx_gt, vy_gt;
     gt_pack_list.push_back(gt_package);
   }
 
+  // Close file
+  if (in_file_.is_open()) {
+    in_file_.close();
+  }
+}
+
+void ProcessData(const vector<MeasurementPackage>& measurement_pack_list,
+                 const vector<GroundTruthPackage>& gt_pack_list,
+                 const string out_file_name) {
+
   // Create a Fusion EKF instance
-  FusionEKF fusionEKF;
+  unique_ptr<FusionEKF> fusionEKF(new FusionEKF);
 
   // used to compute the RMSE later
-  vector<VectorXd> estimations;
-  vector<VectorXd> ground_truth;
+  vector<VectorXd> estimations, ground_truth;
+
+  ofstream out_file_(out_file_name.c_str(), ofstream::out);
+
+  if (!out_file_.is_open()) {
+    cerr << "Cannot open output file: " << out_file_name << endl;
+    exit(EXIT_FAILURE);
+  }
 
   //Call the EKF-based fusion
   size_t N = measurement_pack_list.size();
   for (size_t k = 0; k < N; ++k) {
     // start filtering from the second frame (the speed is unknown in the first
     // frame)
-    fusionEKF.ProcessMeasurement(measurement_pack_list[k]);
+    fusionEKF->ProcessMeasurement(measurement_pack_list[k]);
+
+    cout << "x_ = " << fusionEKF->ekf_->x_ << '\n';
+    cout << "P_ = " << fusionEKF->ekf_->P_ << '\n';
 
     // output the estimation
-    out_file_ << fusionEKF.ekf_.x_(0) << "\t";
-    out_file_ << fusionEKF.ekf_.x_(1) << "\t";
-    out_file_ << fusionEKF.ekf_.x_(2) << "\t";
-    out_file_ << fusionEKF.ekf_.x_(3) << "\t";
+    out_file_ << fusionEKF->ekf_->x_(0) << "\t";
+    out_file_ << fusionEKF->ekf_->x_(1) << "\t";
+    out_file_ << fusionEKF->ekf_->x_(2) << "\t";
+    out_file_ << fusionEKF->ekf_->x_(3) << "\t";
 
     // output the measurements
     if (measurement_pack_list[k].sensor_type_ == MeasurementPackage::LASER) {
@@ -163,22 +147,28 @@ int main(int argc, char* argv[]) {
     out_file_ << gt_pack_list[k].gt_values_(2) << "\t";
     out_file_ << gt_pack_list[k].gt_values_(3) << "\n";
 
-    estimations.push_back(fusionEKF.ekf_.x_);
+    estimations.push_back(fusionEKF->ekf_->x_);
     ground_truth.push_back(gt_pack_list[k].gt_values_);
   }
 
   // compute the accuracy (RMSE)
-  Tools tools;
-  cout << "Accuracy - RMSE:" << endl << tools.CalculateRMSE(estimations, ground_truth) << endl;
+  cout << "Accuracy - RMSE:" << '\n' << Tools::CalculateRMSE(estimations, ground_truth) << '\n';
 
   // close files
   if (out_file_.is_open()) {
     out_file_.close();
   }
+}
 
-  if (in_file_.is_open()) {
-    in_file_.close();
-  }
+int main(int argc, char* argv[]) {
 
-  return 0;
+  check_arguments(argc, argv);
+  string in_file_name = argv[1];
+  string out_file_name = argv[2];
+
+  vector<MeasurementPackage> measurement_pack_list;
+  vector<GroundTruthPackage> gt_pack_list;
+  LoadData(measurement_pack_list, gt_pack_list, in_file_name);
+  ProcessData(measurement_pack_list, gt_pack_list, out_file_name);
+  return EXIT_SUCCESS;
 }

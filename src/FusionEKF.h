@@ -6,8 +6,11 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <memory>
 #include "kalman_filter.h"
 #include "tools.h"
+
+using std::unique_ptr;
 
 class FusionEKF {
 public:
@@ -29,21 +32,27 @@ public:
   /**
   * Kalman Filter update and prediction math lives in here.
   */
-  KalmanFilter ekf_;
+  unique_ptr<KalmanFilter> ekf_;
 
 private:
+  /**
+   * Initializes the Extended Kalman Filter with default parameters
+   */
+  void InitializeKalmanFilter();
+
   // check whether the tracking toolbox was initiallized or not (first measurement)
   bool is_initialized_;
 
   // previous timestamp
   long previous_timestamp_;
 
-  // tool object used to compute Jacobian and RMSE
-  Tools tools;
   Eigen::MatrixXd R_laser_;
   Eigen::MatrixXd R_radar_;
   Eigen::MatrixXd H_laser_;
   Eigen::MatrixXd Hj_;
+
+  double noise_ax_;
+  double noise_ay_;
 };
 
 #endif /* FusionEKF_H_ */

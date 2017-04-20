@@ -24,16 +24,6 @@ public:
   Eigen::MatrixXd R_;
 
   /**
-   * Constructor
-   */
-  KalmanFilter();
-
-  /**
-   * Destructor
-   */
-  virtual ~KalmanFilter();
-
-  /**
    * Init Initializes Kalman filter
    * @param x_in Initial state
    * @param P_in Initial state covariance
@@ -64,6 +54,13 @@ public:
    */
   void UpdateEKF(const Eigen::VectorXd &z);
 
+private:
+  /**
+   * Updates the state. This method is used by both the standard Kalman Filter
+   * and the Extended Kalman Filter
+   * @param y
+   */
+  void UpdateCommon(const Eigen::VectorXd& y);
 };
 
 #endif /* KALMAN_FILTER_H_ */
